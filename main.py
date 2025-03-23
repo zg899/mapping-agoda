@@ -9,6 +9,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import openai
 
 # 加载 .env 文件
 load_dotenv()
@@ -16,10 +17,13 @@ load_dotenv()
 # 从环境变量中读取敏感数据
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # 检查是否成功读取
 if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
     raise ValueError("Missing GOOGLE_API_KEY or GOOGLE_CSE_ID in environment variables.")
+if not openai.api_key:
+    raise ValueError("Missing OPENAI_API_KEY in environment variables.")
 
 # 读取 Excel 文件
 def load_hotel_data(file_path, num_rows=10):
@@ -93,7 +97,7 @@ def scrape_agoda_page_selenium(url):
 
         # 提取邮编
         postal_code = soup.find("meta", {"property": "og:postal_code"})
-        postal = postal_code["content"].strip() if postal_code else None  # 去除空格
+        postal = postal_code["content"].strip() if postal_code else None
         print(f"Postal Code: {postal}")
 
         # 提取酒店名称并清理
@@ -101,7 +105,6 @@ def scrape_agoda_page_selenium(url):
         hotel_name = None
         if og_title:
             title = og_title["content"]
-            # 清理酒店名称，去掉城市名和描述部分
             if ", " in title:
                 hotel_name = title.split(", ")[0]
             elif " | " in title:
@@ -132,17 +135,46 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # 名称和地址相似度
 def calculate_similarity(str1, str2):
     if str1 and str2:
-        # 规范化字符串：转换为小写，去除多余空格和连字符
-        str1 = str1.lower().replace("-", " ").replace("  ", " ").strip()
-        str2 = str2.lower().replace("-", " ").replace("  ", " ").strip()
+        # 规范化：转换为小写，去除所有连字符和空格
+        str1 = str1.lower().replace("-", "").replace(" ", "")
+        str2 = str2.lower().replace("-", "").replace(" ", "")
         return fuzz.token_sort_ratio(str1, str2)
     return 0
 
-# GPT 模糊匹配（占位符）
+# GPT 模糊匹配（使用 gpt-3.5-turbo 模型，适配 OpenAI 1.0.0+ API）
 def gpt_fuzzy_match(local_data, agoda_data):
-    prompt = f"Compare the following hotel data to determine if they refer to the same hotel:\nLocal: {local_data}\nAgoda: {agoda_data}"
-    similarity = 80
-    return similarity
+    try:
+        prompt = f"""
+Compare the following hotel data to determine if they refer to the same hotel:
+Local Hotel: {local_data['name_en']}
+Local Address: {local_data['addr_en']}
+Agoda Hotel: {agoda_data['hotel_name']}
+Agoda Address: {agoda_data['address']}
+Return a similarity score between 0 and 100, where 100 means they are definitely the same hotel, and 0 means they are definitely different. Provide a brief explanation.
+Format your response as:
+Similarity: <score>
+Explanation: <reason>
+"""
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that compares hotel data and provides similarity scores."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100,
+            temperature=0.5
+        )
+        response_text = response.choices[0].message.content.strip()
+        # 解析 GPT 返回的相似度分数
+        lines = response_text.split("\n")
+        for line in lines:
+            if line.startswith("Similarity:"):
+                similarity = int(line.split(":")[1].strip())
+                return similarity
+        return 80  # 如果解析失败，返回默认值
+    except Exception as e:
+        print(f"Error in GPT fuzzy match: {e}")
+        return 80  # 出错时返回默认值
 
 # 主流程
 def main():
@@ -171,14 +203,15 @@ def main():
         postal_match = str(hotel['postal_code']).strip() == str(agoda_data['postal_code']).strip()
 
         # 综合评分（调整权重）
-        score = (0.2 * name_similarity + 0.1 * address_similarity + (0.3 if postal_match else 0)) / 0.6
+        score = (0.3 * name_similarity + 0.2 * address_similarity + (0.3 if postal_match else 0)) / 0.8
         if distance < 1:
-            score += 30
+            score += 20
         elif distance > 5:
             score -= 20
 
         if 40 < score < 80:
             gpt_score = gpt_fuzzy_match(hotel, agoda_data)
+            print(f"GPT Fuzzy Match Score: {gpt_score}")
             score = (score + gpt_score) / 2
 
         result = {
