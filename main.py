@@ -10,6 +10,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import openai
+import re
 
 # 加载 .env 文件
 load_dotenv()
@@ -133,11 +134,50 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return float('inf')
 
 # 名称和地址相似度
-def calculate_similarity(str1, str2):
+def calculate_similarity(str1, str2, is_address=False):
     if str1 and str2:
-        # 规范化：转换为小写，去除所有连字符和空格
-        str1 = str1.lower().replace("-", "").replace(" ", "")
-        str2 = str2.lower().replace("-", "").replace(" ", "")
+        # 规范化：转换为小写，去除多余字符
+        str1 = str1.lower().strip()
+        str2 = str2.lower().strip()
+        
+        if is_address:
+            # 地址规范化：去除 "Room" 前缀，统一连字符和空格
+            str1 = re.sub(r'\broom\b\s*', '', str1, flags=re.IGNORECASE)
+            str2 = re.sub(r'\broom\b\s*', '', str2, flags=re.IGNORECASE)
+            str1 = str1.replace("-", " ").replace("  ", " ")
+            str2 = str2.replace("-", " ").replace("  ", " ")
+        else:
+            # 名称规范化：去除品牌后缀和城市名
+            brand_suffixes = [
+                r'by best western signature collection',
+                r'by best western',
+                r'best western',
+                r'signature collection'
+            ]
+            cities = [
+                r'jeju',
+                r'seoul',
+                r'busan',
+                r'downtown jeju',
+                r'hongdae',
+                r'myeong-dong',
+                r'dongdaemun',
+                r'gangseo',
+                r'songpa',
+                r'jung-gu',
+                r'mapo-gu',
+                r'haeundae-gu'
+            ]
+            for suffix in brand_suffixes:
+                str1 = re.sub(r'\b' + suffix + r'\b', '', str1, flags=re.IGNORECASE)
+                str2 = re.sub(r'\b' + suffix + r'\b', '', str2, flags=re.IGNORECASE)
+            for city in cities:
+                str1 = re.sub(r'\b' + city + r'\b', '', str1, flags=re.IGNORECASE)
+                str2 = re.sub(r'\b' + city + r'\b', '', str2, flags=re.IGNORECASE)
+            # 去除所有连字符和空格
+            str1 = str1.replace("-", "").replace(" ", "")
+            str2 = str2.replace("-", "").replace(" ", "")
+        
         return fuzz.token_sort_ratio(str1, str2)
     return 0
 
@@ -198,7 +238,7 @@ def main():
 
         # 数据匹配
         name_similarity = calculate_similarity(hotel['name_en'], agoda_data['hotel_name'])
-        address_similarity = calculate_similarity(hotel['addr_en'].split(',')[0], agoda_data['address'].split(',')[0] if agoda_data['address'] else None)
+        address_similarity = calculate_similarity(hotel['addr_en'].split(',')[0], agoda_data['address'].split(',')[0] if agoda_data['address'] else None, is_address=True)
         distance = calculate_distance(hotel['latitude'], hotel['longitude'], agoda_data['latitude'], agoda_data['longitude'])
         postal_match = str(hotel['postal_code']).strip() == str(agoda_data['postal_code']).strip()
 
@@ -212,7 +252,7 @@ def main():
         if 40 < score < 80:
             gpt_score = gpt_fuzzy_match(hotel, agoda_data)
             print(f"GPT Fuzzy Match Score: {gpt_score}")
-            score = (score + gpt_score) / 2
+            score = 0.4 * score + 0.6 * gpt_score  # 调整 GPT 分数的权重
 
         result = {
             "local_hotel": hotel['name_en'],
