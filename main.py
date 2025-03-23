@@ -144,10 +144,15 @@ def calculate_similarity(str1, str2, is_address=False):
             # 地址规范化：去除 "Room" 前缀，统一连字符和空格
             str1 = re.sub(r'\broom\b\s*', '', str1, flags=re.IGNORECASE)
             str2 = re.sub(r'\broom\b\s*', '', str2, flags=re.IGNORECASE)
+            # 提取街道名称的核心部分，忽略行政区划
+            str1 = re.sub(r',\s*(mapo-gu|jung-gu|songpa|gangseo|haeundae-gu|dongdaemun|hongdae|downtown jeju|jeju-si|busan|seoul|korea|south korea|jeju-do)', '', str1, flags=re.IGNORECASE)
+            str2 = re.sub(r',\s*(mapo-gu|jung-gu|songpa|gangseo|haeundae-gu|dongdaemun|hongdae|downtown jeju|jeju-si|busan|seoul|korea|south korea|jeju-do)', '', str2, flags=re.IGNORECASE)
             str1 = str1.replace("-", " ").replace("  ", " ")
             str2 = str2.replace("-", " ").replace("  ", " ")
         else:
-            # 名称规范化：去除品牌后缀和城市名
+            # 名称规范化：去除 "Hotel" 前缀、品牌后缀和城市名
+            str1 = re.sub(r'\bhotel\b\s*', '', str1, flags=re.IGNORECASE)
+            str2 = re.sub(r'\bhotel\b\s*', '', str2, flags=re.IGNORECASE)
             brand_suffixes = [
                 r'by best western signature collection',
                 r'by best western',
@@ -245,7 +250,7 @@ def main():
         # 综合评分（调整权重）
         score = (0.3 * name_similarity + 0.2 * address_similarity + (0.3 if postal_match else 0)) / 0.8
         if distance < 1:
-            score += 20
+            score += 30  # 提高距离加分
         elif distance > 5:
             score -= 20
 
