@@ -11,6 +11,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import openai
 import re
+import random
 
 # 加载 .env 文件
 load_dotenv()
@@ -27,9 +28,17 @@ if not openai.api_key:
     raise ValueError("Missing OPENAI_API_KEY in environment variables.")
 
 # 读取 Excel 文件
-def load_hotel_data(file_path, num_rows=10):
+def load_hotel_data(file_path, num_rows=None, filter_prefix=None):
     df = pd.read_excel(file_path)
-    return df.head(num_rows).to_dict('records')
+    if filter_prefix:
+        # 筛选酒店代码以指定前缀开头的酒店
+        df = df[df['hotel_code'].str.startswith(filter_prefix, na=False)]
+    if num_rows:
+        # 如果指定了数量，则随机挑选
+        if len(df) > num_rows:
+            df = df.sample(n=num_rows, random_state=42)  # 随机挑选
+        return df.to_dict('records')
+    return df.to_dict('records')
 
 # 使用 Google Custom Search API 搜索 Agoda 链接
 def search_agoda_hotel(hotel_name):
@@ -61,28 +70,24 @@ def scrape_agoda_page_selenium(url):
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         driver.quit()
 
-        # 提取酒店 ID
         hotel_id = None
         twitter_image = soup.find("meta", {"name": "twitter:image"})
         if twitter_image and "hotelImages" in twitter_image["content"]:
             hotel_id = twitter_image["content"].split("hotelImages/")[1].split("/")[0]
         print(f"Hotel ID: {hotel_id}")
 
-        # 提取酒店 URL
         hotel_url = None
         alternate_link = soup.find("link", {"rel": "alternate", "hreflang": "en"})
         if alternate_link:
             hotel_url = alternate_link["href"]
         print(f"Hotel URL: {hotel_url}")
 
-        # 提取经纬度
         latitude = soup.find("meta", {"property": "place:location:latitude"})
         longitude = soup.find("meta", {"property": "place:location:longitude"})
         lat = float(latitude["content"]) if latitude else None
         lon = float(longitude["content"]) if longitude else None
         print(f"Latitude: {lat}, Longitude: {lon}")
 
-        # 提取地址（拼接街道、地区、国家）
         street_address = soup.find("meta", {"property": "og:street_address"})
         region = soup.find("meta", {"property": "og:region"})
         country = soup.find("meta", {"property": "og:country-name"})
@@ -96,12 +101,10 @@ def scrape_agoda_page_selenium(url):
         addr = ", ".join(addr_parts) if addr_parts else None
         print(f"Address: {addr}")
 
-        # 提取邮编
         postal_code = soup.find("meta", {"property": "og:postal_code"})
         postal = postal_code["content"].strip() if postal_code else None
         print(f"Postal Code: {postal}")
 
-        # 提取酒店名称并清理
         og_title = soup.find("meta", {"property": "og:title"})
         hotel_name = None
         if og_title:
@@ -136,21 +139,17 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # 名称和地址相似度
 def calculate_similarity(str1, str2, is_address=False):
     if str1 and str2:
-        # 规范化：转换为小写，去除多余字符
         str1 = str1.lower().strip()
         str2 = str2.lower().strip()
         
         if is_address:
-            # 地址规范化：去除 "Room" 前缀，统一连字符和空格
             str1 = re.sub(r'\broom\b\s*', '', str1, flags=re.IGNORECASE)
             str2 = re.sub(r'\broom\b\s*', '', str2, flags=re.IGNORECASE)
-            # 提取街道名称的核心部分，忽略行政区划
             str1 = re.sub(r',\s*(mapo-gu|jung-gu|songpa|gangseo|haeundae-gu|dongdaemun|hongdae|downtown jeju|jeju-si|busan|seoul|korea|south korea|jeju-do)', '', str1, flags=re.IGNORECASE)
             str2 = re.sub(r',\s*(mapo-gu|jung-gu|songpa|gangseo|haeundae-gu|dongdaemun|hongdae|downtown jeju|jeju-si|busan|seoul|korea|south korea|jeju-do)', '', str2, flags=re.IGNORECASE)
             str1 = str1.replace("-", " ").replace("  ", " ")
             str2 = str2.replace("-", " ").replace("  ", " ")
         else:
-            # 名称规范化：去除 "Hotel" 前缀、品牌后缀和城市名
             str1 = re.sub(r'\bhotel\b\s*', '', str1, flags=re.IGNORECASE)
             str2 = re.sub(r'\bhotel\b\s*', '', str2, flags=re.IGNORECASE)
             brand_suffixes = [
@@ -179,7 +178,6 @@ def calculate_similarity(str1, str2, is_address=False):
             for city in cities:
                 str1 = re.sub(r'\b' + city + r'\b', '', str1, flags=re.IGNORECASE)
                 str2 = re.sub(r'\b' + city + r'\b', '', str2, flags=re.IGNORECASE)
-            # 去除所有连字符和空格
             str1 = str1.replace("-", "").replace(" ", "")
             str2 = str2.replace("-", "").replace(" ", "")
         
@@ -222,16 +220,22 @@ Explanation: <reason>
         return 80  # 出错时返回默认值
 
 # 主流程
-def main():
+def main(num_rows=10, filter_prefix=None):
     file_path = "/Users/zhenggang/python/project/mapping-agoda/hotel_last3m.xlsx"
-    hotels = load_hotel_data(file_path, num_rows=10)
+    hotels = load_hotel_data(file_path, num_rows=num_rows, filter_prefix=filter_prefix)
     print(f"Loaded {len(hotels)} hotels from Excel file.")
 
     results = []
+    total_time = 0
+    gpt_calls = 0
+    gcp_calls = 0
+
     for hotel in hotels:
-        print(f"\nProcessing hotel: {hotel['name_en']}")
+        start_time = time.time()
+        print(f"\nProcessing hotel: {hotel['name_en']} (Code: {hotel.get('hotel_code', 'N/A')})")
         
         links = search_agoda_hotel(hotel['name_en'])
+        gcp_calls += 1  # 每次搜索调用一次 GCP API
         if not links:
             print("No Agoda links found.")
             continue
@@ -241,53 +245,100 @@ def main():
             print("Failed to scrape Agoda page.")
             continue
 
-        # 数据匹配
         name_similarity = calculate_similarity(hotel['name_en'], agoda_data['hotel_name'])
         address_similarity = calculate_similarity(hotel['addr_en'].split(',')[0], agoda_data['address'].split(',')[0] if agoda_data['address'] else None, is_address=True)
         distance = calculate_distance(hotel['latitude'], hotel['longitude'], agoda_data['latitude'], agoda_data['longitude'])
         postal_match = str(hotel['postal_code']).strip() == str(agoda_data['postal_code']).strip()
 
-        # 综合评分（调整权重）
         score = (0.3 * name_similarity + 0.2 * address_similarity + (0.3 if postal_match else 0)) / 0.8
         if distance < 1:
-            score += 30  # 提高距离加分
+            score += 30
         elif distance > 5:
             score -= 20
 
         if 40 < score < 80:
             gpt_score = gpt_fuzzy_match(hotel, agoda_data)
+            gpt_calls += 1  # 每次调用 GPT API
             print(f"GPT Fuzzy Match Score: {gpt_score}")
-            score = 0.4 * score + 0.6 * gpt_score  # 调整 GPT 分数的权重
+            score = 0.4 * score + 0.6 * gpt_score
+
+        end_time = time.time()
+        match_time = end_time - start_time
+        total_time += match_time
 
         result = {
             "local_hotel": hotel['name_en'],
+            "hotel_code": hotel.get('hotel_code', 'N/A'),
             "agoda_hotel": agoda_data['hotel_name'],
             "name_similarity": name_similarity,
             "address_similarity": address_similarity,
             "distance_km": distance,
             "postal_match": postal_match,
             "score": score,
+            "match_time_seconds": match_time,
             "agoda_data": agoda_data
         }
         results.append(result)
 
+        print(f"Match Time: {match_time:.2f} seconds")
         time.sleep(1)
 
     print("\nMatching Results:")
     for result in results:
-        print(f"\nLocal Hotel: {result['local_hotel']}")
+        print(f"\nLocal Hotel: {result['local_hotel']} (Code: {result['hotel_code']})")
         print(f"Agoda Hotel: {result['agoda_hotel']}")
         print(f"Name Similarity: {result['name_similarity']}")
         print(f"Address Similarity: {result['address_similarity']}")
         print(f"Distance (km): {result['distance_km']}")
         print(f"Postal Code Match: {result['postal_match']}")
         print(f"Final Score: {result['score']}")
+        print(f"Match Time: {result['match_time_seconds']:.2f} seconds")
         print(f"Agoda Data: {result['agoda_data']}")
         print("---")
+
+    # 计算总耗时和平均耗时
+    avg_time_per_hotel = total_time / len(results) if results else 0
+    print(f"\nTotal Matching Time: {total_time:.2f} seconds")
+    print(f"Average Time per Hotel: {avg_time_per_hotel:.2f} seconds")
+
+    # 估算 9000 个酒店的耗时
+    total_hotels = 9000
+    estimated_total_time = avg_time_per_hotel * total_hotels
+    print(f"Estimated Time for {total_hotels} Hotels: {estimated_total_time:.2f} seconds ({estimated_total_time / 3600:.2f} hours)")
+
+    # 估算成本
+    # GCP 成本：Google Custom Search API 每 1000 次查询 $5
+    gcp_cost_per_1000 = 5  # 美元
+    total_gcp_cost = (gcp_calls / 1000) * gcp_cost_per_1000 * (total_hotels / len(results))
+    print(f"Total GCP Calls: {gcp_calls} (for {len(results)} hotels)")
+    print(f"Estimated GCP Cost for {total_hotels} Hotels: ${total_gcp_cost:.2f}")
+
+    # GPT 成本：gpt-3.5-turbo 每 1M tokens $0.50 (输入) + $1.50 (输出)
+    # 假设每次 GPT 调用平均使用 200 tokens 输入，100 tokens 输出
+    tokens_per_call = 200 + 100  # 输入 + 输出
+    cost_per_million_tokens_input = 0.50  # 美元
+    cost_per_million_tokens_output = 1.50  # 美元
+    total_tokens = tokens_per_call * gpt_calls * (total_hotels / len(results))
+    total_gpt_cost = (total_tokens / 1000000) * (cost_per_million_tokens_input + cost_per_million_tokens_output)
+    print(f"Total GPT Calls: {gpt_calls} (for {len(results)} hotels)")
+    print(f"Estimated GPT Cost for {total_hotels} Hotels: ${total_gpt_cost:.2f}")
+
+    # 总成本
+    total_cost = total_gcp_cost + total_gpt_cost
+    print(f"Estimated Total Cost for {total_hotels} Hotels: ${total_cost:.2f}")
 
     result_df = pd.DataFrame(results)
     result_df.to_csv("matching_results.csv", index=False)
     print("\nResults saved to matching_results.csv")
 
+    return results
+
 if __name__ == "__main__":
-    main()
+    # 随机挑选 10 个以 "JP" 开头的酒店
+    print("Running Version 1.1: Testing with 10 random hotels starting with 'JP'")
+    results = main(num_rows=10, filter_prefix="JP")
+
+    # 如果测试通过，处理 100 个酒店
+    if results:
+        print("\nTest successful! Now processing 100 hotels...")
+        main(num_rows=100, filter_prefix=None)
