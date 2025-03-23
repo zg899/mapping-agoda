@@ -172,3 +172,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+#2025-03-24 00:20
+.env
+matching_results.csv
+hotel_last3m.xlsx
+requirements.txt
