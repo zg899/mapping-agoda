@@ -32,11 +32,11 @@ def load_hotel_data(file_path, num_rows=None, filter_prefix=None):
     df = pd.read_excel(file_path)
     if filter_prefix:
         # 筛选酒店代码以指定前缀开头的酒店
-        df = df[df['hotel_code'].str.startswith(filter_prefix, na=False)]
+        df = df[df['code'].str.startswith(filter_prefix, na=False)]
     if num_rows:
         # 如果指定了数量，则随机挑选
         if len(df) > num_rows:
-            df = df.sample(n=num_rows, random_state=42)  # 随机挑选
+            df = df.sample(n=num_rows, random_state=10)  # 随机挑选
         return df.to_dict('records')
     return df.to_dict('records')
 
@@ -232,7 +232,7 @@ def main(num_rows=10, filter_prefix=None):
 
     for hotel in hotels:
         start_time = time.time()
-        print(f"\nProcessing hotel: {hotel['name_en']} (Code: {hotel.get('hotel_code', 'N/A')})")
+        print(f"\nProcessing hotel: {hotel['name_en']} (Code: {hotel.get('code', 'N/A')})")
         
         links = search_agoda_hotel(hotel['name_en'])
         gcp_calls += 1  # 每次搜索调用一次 GCP API
@@ -268,7 +268,7 @@ def main(num_rows=10, filter_prefix=None):
 
         result = {
             "local_hotel": hotel['name_en'],
-            "hotel_code": hotel.get('hotel_code', 'N/A'),
+            "code": hotel.get('code', 'N/A'),
             "agoda_hotel": agoda_data['hotel_name'],
             "name_similarity": name_similarity,
             "address_similarity": address_similarity,
@@ -285,7 +285,7 @@ def main(num_rows=10, filter_prefix=None):
 
     print("\nMatching Results:")
     for result in results:
-        print(f"\nLocal Hotel: {result['local_hotel']} (Code: {result['hotel_code']})")
+        print(f"\nLocal Hotel: {result['local_hotel']} (Code: {result['code']})")
         print(f"Agoda Hotel: {result['agoda_hotel']}")
         print(f"Name Similarity: {result['name_similarity']}")
         print(f"Address Similarity: {result['address_similarity']}")
