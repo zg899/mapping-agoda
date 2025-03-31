@@ -1,0 +1,96 @@
+{
+    "name": {
+        "remove_words": [
+            "hotel",
+            "bestpriceon",
+            "almondin",
+            "+reviews!",
+            "suncheon",
+            "theh",
+            "inmokposi",
+            "siheung",
+            "bestprice",
+            "business",
+            "zipin",
+            "pyeongchang",
+            "2025",
+            "in"
+        ],
+        "remove_suffixes": [
+            "by best western signature collection",
+            "by best western",
+            "best western",
+            "signature collection"
+        ],
+        "remove_cities": [
+            "jeju",
+            "seoul",
+            "busan",
+            "downtown jeju",
+            "hongdae",
+            "myeong-dong",
+            "dongdaemun",
+            "gangseo",
+            "songpa",
+            "jung-gu",
+            "mapo-gu",
+            "haeundae-gu"
+        ],
+        "replace": {
+            "-": "",
+            " ": ""
+        },
+        "remove_patterns": [
+            "changwon",
+            "masan",
+            "39",
+            "si",
+            "deals",
+            "entireapartment",
+            "besttravel",
+            "businessspecialization",
+            "mokpo",
+            "28",
+            "raumin",
+            "ondaesan",
+            "seosansi",
+            "300",
+            "2025",
+            "greenandblue",
+            "u5"
+        ]
+    },
+    "address": {
+        "remove_words": [
+            "room",
+            "dongho",
+            "ro"
+        ],
+        "remove_regions": [
+            "mapo-gu",
+            "jung-gu",
+            "songpa",
+            "gangseo",
+            "haeundae-gu",
+            "dongdaemun",
+            "hongdae",
+            "downtown jeju",
+            "jeju-si",
+            "busan",
+            "seoul",
+            "korea",
+            "south korea",
+            "jeju-do"
+        ],
+        "replace": {
+            "-": " ",
+            "  ": " "
+        },
+        "remove_patterns": [
+            "supyo",
+            "26",
+            "gil",
+            "28"
+        ]
+    }
+}
